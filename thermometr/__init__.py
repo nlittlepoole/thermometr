@@ -1,0 +1,1 @@
+from thermometr import Thermometr
