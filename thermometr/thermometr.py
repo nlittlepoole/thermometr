@@ -71,7 +71,7 @@ class Thermometr():
         raise ValueError('Series could not be parsed, must be iterable')        
 
     @staticmethod
-    def seasonal_esd(inputs, a =.025, frequency = 3):
+    def seasonal_esd(inputs, a =.025, frequency = 3, start= None, end =None):
         """
         Static method that generates anomolies from the given series
             using S-H-ESD algorithm developed by twitter
@@ -86,59 +86,65 @@ class Thermometr():
             List of tuple pairs (anomoly,index) indicating the anomolies for input series
         """
 
+
         outliers = []
         raw = np.copy(inputs) # copy so that you keep inputs immutable        
         data = sm.tsa.seasonal_decompose(raw, freq=frequency)  # STL decomposition algorithm from stats_model
-        vals = data.resid # distance from STL curve for each point in series
-        mean = np.nanmean(vals) # mean of the residuals
+        
+        trend = data.trend
+        trend_mean = np.nanmean(trend)
+        for i in range(len(trend)):
+            trend[i]  = trend_mean if np.isnan(trend[i]) else trend[i]
+        vals = data.observed - data.trend - data.seasonal  # distance from STL curve for each point in series
+        mean = np.nanmean(vals) # mean of the residuals 
 
         # need to impute NULL residuals to mean
+        pairs = []
         for i in range(len(vals)):
-            vals[i]  = mean if np.isnan(vals[i]) else vals[i]
+            v  = mean if np.isnan(vals[i]) else vals[i]
+            pairs.append((v,i))
+        vals = pairs
+        start = 0 if start is None else start
+        end = len(pairs) -1  if end is None else end
+        check = True
         # run grubbs test on all the items in time order
-        for i in range(len(raw)):
+        while check ==True:
             g = 0
             val = 0
             n = len(vals)
             index = 0
-
-            u = np.nanmean(vals)
-            s = np.nanstd(vals)
+            ind = 0
+            series  = [ x[0] for x in vals]
+            series = np.array(series)
+            u = np.nanmean(series)
+            s = np.nanstd(series)
             # find residual with largest z value, or distance from mean
-            for j in range(n): 
-                val = vals[j] if abs( (u - vals[j]) /s)> g else val
-                index = j if abs( (u - vals[j]) /s)> g else index
-                g = abs( (u - vals[j]) /s) if abs( (u - vals[j]) /s)> g else g
-
+            for j in range(len(vals)):
+                if j >= start and j <= end:
+                    v = vals[j][0]
+                    k = vals[j][1]
+                    val = v if abs( (u - v )/s)> g else val
+                    index = int(j) if abs( (u - v) /s)> g else index
+                    ind = k if abs( (u - v) /s)> g else ind
+                    g = abs( (u - v) /s) if abs( (u - v) /s)> g else g
+    
             # generate critical value for grubb's test
             critical = ( (n -1) /math.sqrt(n))*math.sqrt(math.pow(t.ppf(a/(2*n), n -2),2)/ (n -2 + math.pow(t.ppf(a/(2*n),n-2),2)  )   )
             if g > critical:
-                outliers.append((inputs[index],index))
+                outliers.append((inputs[ind],ind, 1 - critical/g))
             else:
                 check = False
             # remove value if it passes for future test
-            temp = np.copy(vals)
-            np.delete(temp, index)
-            vals[index] = np.nanmean(temp)
+            del vals[index]
         return outliers
 
-    @staticmethod
-    def arima_clean(values, known):
-        for n in known:
-            if n > 13:
-                model = sm.tsa.AR(values[:n -1]).fit()
-                est = model.predict(n,n+20)
-                values[n] = est[0]
-            else:
-                values[n] = np.nanmean(values[:n-1])
-            return values
 
     @staticmethod
-    def arima_anomoly(values, anomoly_index= None, clean= None, margin=1, strict =True ):
+    def arima_anomoly(values, anomoly_index= None, margin=1, strict =True ):
         n = len(values) if anomoly_index == None else anomoly_index
         if n < 13:
             return not strict
-        model = sm.tsa.AR(values[:n -1]).fit() if not clean is not None else sm.tsa.AR(clean[:n -1]).fit()
+        model = sm.tsa.AR(values[:n -1]).fit()
         base = 12
         fits = model.predict(base, n)
         errs = []
@@ -148,7 +154,7 @@ class Thermometr():
         errs = np.array(errs)
         u = np.nanmean(errs)
         diff = abs((fits[len(fits)-1] - values[n])/fits[len(fits)-1])
-        print u, diff, values[n], fits[len(fits)-1]
+        print values[n], fits[len(fits)-1], diff, u
         return True if diff >= u and u  else False
 
     @staticmethod
@@ -178,27 +184,39 @@ class Thermometr():
 
 
     @staticmethod
-    def read(series):
+    def read(series,start,end):
         vals = np.copy(series)
-        potential = Thermometr.seasonal_esd(vals, frequency= Thermometr.seasonality(vals))
+        potential = Thermometr.seasonal_esd(vals, frequency= Thermometr.seasonality(vals), start=start, end=end)
         potential = sorted(potential, key=lambda x: x[1])
-        potential_indexes = [x[1] for x in potential]
-        clean = Thermometr.arima_clean(vals, potential_indexes)
         confirmed = []
         for x in potential:
-            if Thermometr.arima_anomoly(vals, x[1],clean, strict=False):
+            if Thermometr.arima_anomoly(vals, x[1], strict=False):
                 confirmed.append(x)
                 vals[x[1]] = vals[x[1] -1]
         return confirmed
 
-    def detect(self):
+    def detect(self, start = None, end = None):
         results = []
         for sub_series in self.series:
-            results.append(Thermometr.read(sub_series))
+            results.append(Thermometr.read(sub_series,start,end))
         if self.dates is not None:
             temp = []
             for sub_series in results:
-                temp.append ([ (x[0], self.dates[x[1]])  for x in sub_series ])
+                temp.append ([ {"value":x[0], "index":self.dates[x[1]], "ESD":x[2]}  for x in sub_series ])
+            results = temp
+        if len(results) ==1:
+            results = results[0]
+        return results
+
+    def detect_latest(self):
+        results = []
+        for sub_series in self.series:
+            n = len(sub_series)
+            results.append(Thermometr.read(sub_series,n-1,n))
+        if self.dates is not None:
+            temp = []
+            for sub_series in results:
+                temp.append ([ {"value":x[0], "index":self.dates[x[1]], "ESD":x[2]}  for x in sub_series ])
             results = temp
         if len(results) ==1:
             results = results[0]
