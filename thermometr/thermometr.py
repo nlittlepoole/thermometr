@@ -91,9 +91,9 @@ class Thermometr():
         data = sm.tsa.seasonal_decompose(raw, freq=frequency)  # STL decomposition algorithm from stats_model
         
         trend = data.trend
-        trend_mean = np.nanmean(trend)
         for i in range(len(trend)):
-            trend[i]  = trend_mean if np.isnan(trend[i]) else trend[i]
+            substitute = trend[i-frequency] if i > frequency else trend[i + frequency] 
+            trend[i]  = substitute if np.isnan(trend[i]) else trend[i]
         vals = data.observed - data.trend - data.seasonal  # distance from STL curve for each point in series
         mean = np.nanmean(vals) # mean of the residuals 
 
@@ -102,9 +102,14 @@ class Thermometr():
         for i in range(len(vals)):
             v  = mean if np.isnan(vals[i]) else vals[i]
             pairs.append((v,i))
-        vals = pairs
+        return Thermometr.grubbs_test(inputs, pairs, start,end,a)
+
+    @staticmethod 
+    def grubbs_test( inputs,errs, start=None,end=None, a = .025):
+        outliers = []
+        vals = errs
         start = 0 if start is None else start
-        end = len(pairs) -1  if end is None else end
+        end = len(vals) -1  if end is None else end
         check = True
         # run grubbs test on all the items in time order
         while check ==True:
@@ -129,17 +134,17 @@ class Thermometr():
     
             # generate critical value for grubb's test
             critical = ( (n -1) /math.sqrt(n))*math.sqrt(math.pow(t.ppf(a/(2*n), n -2),2)/ (n -2 + math.pow(t.ppf(a/(2*n),n-2),2)  )   )
+            #print g, critical, inputs[ind], ind
             if g > critical:
                 outliers.append((inputs[ind],ind, 1 - critical/g))
             else:
                 check = False
             # remove value for next iteration of the test
-            del vals[index]
+            vals[index] = (u*n - vals[index])/ (n-1)
         return outliers
 
-
     @staticmethod
-    def arima_anomoly(values, anomoly_index= None, margin=1, strict =True ):
+    def arima_test(values, clean,start= None, end=1, strict =True ):
         """
         Static method that is used for verifying if a point in a series is an anomaly
         Note:
@@ -153,24 +158,24 @@ class Thermometr():
         Returns:
             True if anomaly, False otherwise
         """
-        n = len(values) if anomoly_index == None else anomoly_index
-        # ARIMA doesn't work on series lest than 13
-        if n < 13:
-            return not strict
-        # Build the ARIMA model and generate projections
-        model = sm.tsa.AR(values[:n -1]).fit()
-        base = 12 # ARIMA requires starting the projections at an index less than the maximum
-        fits = model.predict(base, n)
-        errs = []
-		# generates all the differences between arima projections and observed values
-        for i in range(1, n-base -1):
-            errs.append( abs (fits[i] - values[i+base])/values[i+base] )
+        try:
+            n = len(values)
+            # ARIMA doesn't work on series lest than 13
+            if n < 13:
+                return not strict
+            # Build the ARIMA model and generate projections
+            model = sm.tsa.AR(clean).fit()
+            base = 12 # ARIMA requires starting the projections at an index less than the maximum
+            fits = model.predict(base, n)
+            errs = []
+            # generates all the differences between arima projections and observed values
+            for i in range(base,n):
+                errs.append((fits[i-base] - values[i],i))
 
-        errs = np.array(errs)
-        u = np.nanmean(errs)
-        diff = abs((fits[len(fits)-1] - values[n])/fits[len(fits)-1])
-        print values[n], fits[len(fits)-1], diff, u
-        return True if diff >= u and u  else False
+            return Thermometr.grubbs_test(values, errs)
+        except Exception as e:
+            return e
+
 
     @staticmethod
     def derivative(y):
@@ -216,7 +221,7 @@ class Thermometr():
 
 
     @staticmethod
-    def read(series,start,end):
+    def read(series,start,end, strict = False , a=0.025):
         """
         Finds anomalies in a series using ESD and ARIMA validation
         Args:
@@ -226,16 +231,32 @@ class Thermometr():
         Returns [tuples] containing anomalies, their index, their value, and their ESD score
         """
         vals = np.copy(series)
-        potential = Thermometr.seasonal_esd(vals, frequency= Thermometr.seasonality(vals), start=start, end=end)
+        potential = Thermometr.seasonal_esd(vals,a=a,frequency= Thermometr.seasonality(vals), start=start, end=end)
         potential = sorted(potential, key=lambda x: x[1])
-        confirmed = []
-        for x in potential:
-            if Thermometr.arima_anomoly(vals, x[1], strict=False):
-                confirmed.append(x)
-                vals[x[1]] = vals[x[1] -1]
-        return confirmed
+        indices = [x[1] for x in potential]
+ 
+        clean = np.copy(vals)
+        for i in range(len(vals)):
+            if i in indices and i >0:
+                clean[i] = clean[i-1]
 
-    def detect(self, start = None, end = None):
+        # check against ARIMA results, if strict mode only take intersection of anomaly sets
+        others = Thermometr.arima_test(vals,clean)
+        if strict:
+            confirmed = []
+            indices = [x[1] for x in others]
+            for x in potential:
+                if x[1] < 12 or x[1] in indices:
+                    confirmed.append(x)
+            potential = confirmed
+        else:
+            potential.extend(others)
+        potential  = {v[1]:v for v in potential}.values()
+        anomalies = sorted(potential, key=lambda x: x[1])
+
+        return anomalies
+
+    def detect(self, start = None, end = None, strict = False, a =0.025):
         """
         Finds anomalies in each series of Thermometr
         Args:
@@ -246,17 +267,22 @@ class Thermometr():
         """
         results = []
         for sub_series in self.series:
-            results.append(Thermometr.read(sub_series,start,end))
+            results.append(Thermometr.read(sub_series,start,end,strict,a))
         if self.dates is not None:
             temp = []
             for sub_series in results:
                 temp.append ([ {"value":x[0], "index":self.dates[x[1]], "ESD":x[2]}  for x in sub_series ])
             results = temp
+        else:
+            temp = []
+            for sub_series in results:
+                temp.append ([ {"value":x[0], "index":x[1], "ESD":x[2]}  for x in sub_series ])
+            results = temp
         if len(results) ==1:
             results = results[0]
         return results
 
-    def detect_latest(self):
+    def detect_latest(self,strict = False):
         """
         Finds last index anomalies in each series of Thermometr
         Notes:
@@ -267,11 +293,16 @@ class Thermometr():
         results = []
         for sub_series in self.series:
             n = len(sub_series)
-            results.append(Thermometr.read(sub_series,n-1,n))
+            results.append(Thermometr.read(sub_series,n-1,n,strict))
         if self.dates is not None:
             temp = []
             for sub_series in results:
                 temp.append ([ {"value":x[0], "index":self.dates[x[1]], "ESD":x[2]}  for x in sub_series ])
+            results = temp
+        else:
+            temp = []
+            for sub_series in results:
+                temp.append ([ {"value":x[0], "index":x[1], "ESD":x[2]}  for x in sub_series ])
             results = temp
         if len(results) ==1:
             results = results[0]
