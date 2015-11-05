@@ -174,7 +174,7 @@ class Thermometr():
 
             return Thermometr.grubbs_test(values, errs)
         except Exception as e:
-            return e
+            return []
 
 
     @staticmethod
@@ -253,7 +253,7 @@ class Thermometr():
             potential.extend(others)
         potential  = {v[1]:v for v in potential}.values()
         anomalies = sorted(potential, key=lambda x: x[1])
-
+        print anomalies
         return anomalies
 
     def detect(self, start = None, end = None, strict = False, a =0.025):
