@@ -217,8 +217,11 @@ class Thermometr():
                     changes =0
                     counts.append(count)
                     count = 0
-        return int(np.array(counts[1:]).mean()  ) 
-
+        try:
+            return int(np.nanmean(np.array(counts[1:]) ) ) 
+        except Exception as e:
+            print e
+            return 3
 
     @staticmethod
     def read(series,start,end, strict = False , a=0.025):
