@@ -82,6 +82,8 @@ class Thermometr():
             inputs (np.array[int]): time series of numerical values
             a (float): a confidence level(alpha) for the algorithm to use to determine outliers
             frequency (int): the frequency of season of the data (instances to complete cycle) 
+            start (int): the first index in the series to check for anomalies
+            end (int): the last index in the series to check for anomalies
         Returns:
             List of tuple pairs (anomoly,index) indicating the anomolies for input series
         """
@@ -106,12 +108,26 @@ class Thermometr():
 
     @staticmethod 
     def grubbs_test( inputs,errs, start=None,end=None, a = .025):
+        """
+        Static method that finds anomalies in a sample of nomrally distributed random variables
+
+        Note:
+          An assumption is made that the input data is normal. Grubb's test uses the chi squared 
+          distribution and n degrees of freedom to account for small sample sizes
+
+        Args:
+            inputs (np.array[int]): time series of numerical values
+            start (int): the first index in the series to check for anomalies
+            end (int): the last index in the series to check for anomalies
+            a (float): a confidence level(alpha) for the algorithm to use to determine outliers
+        """
         outliers = []
         vals = errs
         start = 0 if start is None else start
         end = len(vals) -1  if end is None else end
         check = True
-        # run grubbs test on all the items in time order
+
+        # run grubbs test until the furthest remaining point fails
         while check ==True:
             g = 0
             val = 0
@@ -134,29 +150,29 @@ class Thermometr():
     
             # generate critical value for grubb's test
             critical = ( (n -1) /math.sqrt(n))*math.sqrt(math.pow(t.ppf(a/(2*n), n -2),2)/ (n -2 + math.pow(t.ppf(a/(2*n),n-2),2)  )   )
-            #print g, critical, inputs[ind], ind
+		
             if g > critical:
                 outliers.append((inputs[ind],ind, 1 - critical/g))
             else:
                 check = False
-            # remove value for next iteration of the test
+            # remove value for next iteration of the test by imputing to new mean
             vals[index] = (u*n - vals[index])/ (n-1)
         return outliers
 
     @staticmethod
     def arima_test(values, clean,start= None, end=1, strict =True ):
         """
-        Static method that is used for verifying if a point in a series is an anomaly
+        Static method that is used for finding anomalies with ARIMA and not STL
         Note:
              ARIMA doesn't work on small series so in strict mode validation defaults to false
              and in non strict defaults to true
         Args:
             values (np.array[int]): time series values
-            anomoly_index: index of the point in values thought to be an anomaly, defaults to last value if not provided
-            margin (int): to be used to create hypthoesis test for comnparison
-            stricct (binary): determines the default return value for when a comparison cannot be completed 
+            start (int): the first index in the series to check for anomalies
+            end (int): the last index in the series to check for anomalies
+            strict (binary): determines the default return value for when a comparison cannot be completed 
         Returns:
-            True if anomaly, False otherwise
+            List of tuple pairs (anomoly,index) indicating the anomolies for input series
         """
         try:
             n = len(values)
@@ -256,7 +272,6 @@ class Thermometr():
             potential.extend(others)
         potential  = {v[1]:v for v in potential}.values()
         anomalies = sorted(potential, key=lambda x: x[1])
-        print anomalies
         return anomalies
 
     def detect(self, start = None, end = None, strict = False, a =0.025):
@@ -269,8 +284,12 @@ class Thermometr():
              list or list of lists contianing anomalies for Thermometr
         """
         results = []
+
         for sub_series in self.series:
-            results.append(Thermometr.read(sub_series,start,end,strict,a))
+            n = len(sub_series)
+            s= eval(start) if type(start) == str else start
+            e = eval(end) if type(end) == str else end
+            results.append(Thermometr.read(sub_series,s,e,strict,a))
         if self.dates is not None:
             temp = []
             for sub_series in results:
@@ -285,7 +304,7 @@ class Thermometr():
             results = results[0]
         return results
 
-    def detect_latest(self,strict = False):
+    def detect_latest(self,strict = False, a=0.025):
         """
         Finds last index anomalies in each series of Thermometr
         Notes:
@@ -293,20 +312,4 @@ class Thermometr():
         Returns:
              list or list of lists contianing anomalies for Thermometr
         """
-        results = []
-        for sub_series in self.series:
-            n = len(sub_series)
-            results.append(Thermometr.read(sub_series,n-1,n,strict))
-        if self.dates is not None:
-            temp = []
-            for sub_series in results:
-                temp.append ([ {"value":x[0], "index":self.dates[x[1]], "ESD":x[2]}  for x in sub_series ])
-            results = temp
-        else:
-            temp = []
-            for sub_series in results:
-                temp.append ([ {"value":x[0], "index":x[1], "ESD":x[2]}  for x in sub_series ])
-            results = temp
-        if len(results) ==1:
-            results = results[0]
-        return results
+        return self.detect("n-1","n", strict,a)
