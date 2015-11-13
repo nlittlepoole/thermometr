@@ -4,7 +4,6 @@ import random
 import pandas as pd
 from scipy.stats import t
 import scipy.stats as st
-from numpy import diff
 import numpy as np
 import collections
 
@@ -12,7 +11,8 @@ from numbers import Number
 
 
 class Thermometr():
-    """ Thermometr objects generate anomoly measurements from input series
+    """ 
+    Thermometr objects generate anomoly measurements from input series
     """
 
 
@@ -109,7 +109,7 @@ class Thermometr():
     @staticmethod 
     def grubbs_test( inputs,errs, start=None,end=None, a = .025):
         """
-        Static method that finds anomalies in a sample of nomrally distributed random variables
+        Static method that finds anomalies in a sample of normally distributed random variables
 
         Note:
           An assumption is made that the input data is normal. Grubb's test uses the chi squared 
@@ -128,7 +128,7 @@ class Thermometr():
         check = True
 
         # run grubbs test until the furthest remaining point fails
-        while check ==True:
+        while check == True:
             g = 0
             val = 0
             n = len(vals)
@@ -176,7 +176,7 @@ class Thermometr():
         """
         try:
             n = len(values)
-            # ARIMA doesn't work on series lest than 13
+            # ARIMA doesn't work on series less than 13
             if n < 13:
                 return not strict
             # Build the ARIMA model and generate projections
@@ -204,7 +204,7 @@ class Thermometr():
             np.array[float] of changes between values 
         """
         dx = 0.001
-        dy = diff(y)/dx
+        dy = np.diff(y)/dx
         return np.multiply(dy,.001)
 
     @staticmethod
@@ -240,7 +240,7 @@ class Thermometr():
             return 3
 
     @staticmethod
-    def read(series,start,end, strict = False , a=0.025):
+    def detect_series(series,start,end, strict = False , a=0.025):
         """
         Finds anomalies in a series using ESD and ARIMA validation
         Args:
@@ -289,7 +289,7 @@ class Thermometr():
             n = len(sub_series)
             s= eval(start) if type(start) == str else start
             e = eval(end) if type(end) == str else end
-            results.append(Thermometr.read(sub_series,s,e,strict,a))
+            results.append(Thermometr.detect_series(sub_series,s,e,strict,a))
         if self.dates is not None:
             temp = []
             for sub_series in results:
