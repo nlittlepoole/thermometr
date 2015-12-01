@@ -150,7 +150,6 @@ class Thermometr():
     
             # generate critical value for grubb's test
             critical = ( (n -1) /math.sqrt(n))*math.sqrt(math.pow(t.ppf(a/(2*n), n -2),2)/ (n -2 + math.pow(t.ppf(a/(2*n),n-2),2)  )   )
-		
             if g > critical:
                 outliers.append((inputs[ind],ind, 1 - critical/g))
             else:
@@ -180,6 +179,10 @@ class Thermometr():
             if n < 13:
                 return not strict
             # Build the ARIMA model and generate projections
+            diffs = np.diff(clean)
+            clean = np.array([0])
+            clean = np.concatenate((clean,diffs))
+
             model = sm.tsa.AR(clean).fit()
             base = 12 # ARIMA requires starting the projections at an index less than the maximum
             fits = model.predict(base, n)
@@ -190,6 +193,7 @@ class Thermometr():
 
             return Thermometr.grubbs_test(values, errs)
         except Exception as e:
+            print e
             return []
 
 
