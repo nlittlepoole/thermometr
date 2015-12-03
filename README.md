@@ -1,6 +1,8 @@
 thermometr
 ==========
 
+### Installation
+Clone this repo. Change directories into thermometr and run ```python setup.py install``` to install the package thermometr 
 ### Overview
 The Thermometr class implements the [Twitter S-H-ESD Algorithm](https://blog.twitter.com/2015/introducing-practical-and-robust-anomaly-detection-in-a-time-series)  with an ARIMA based validation. The repository is setup as an installable python package to be used elsewhere in the Product Analytics codebase.
 
