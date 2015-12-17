@@ -13,6 +13,7 @@ from numbers import Number
 class Thermometr():
     """ 
     Thermometr objects generate anomoly measurements from input series
+
     """
 
 
@@ -38,6 +39,7 @@ class Thermometr():
             series (Optional[int] or DataFrame or Dict): 1D or 2D group  of numerical values or Dataframe
         Returns:
             List of numpy arrays containing series, raises ValueError if problem
+
         """
 
         lists = []
@@ -49,6 +51,7 @@ class Thermometr():
             raise ValueError('Series could not be parsed, must be iterable')
         # DataFrame isn't a standard iterable, .values returns np.array()
         if isinstance(series, pd.DataFrame):
+            df = series
             for i in df.columns:
                 lists.append(df[i].values)
             return lists
